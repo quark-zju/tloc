@@ -256,6 +256,9 @@ fn walk_dir(
         }
 
         if file_type.is_dir() {
+            if is_dot_prefixed_dir(&entry) {
+                continue;
+            }
             walk_dir(base, &path, root_label, config, language_filter, root)?;
         } else if file_type.is_file() {
             process_file(&path, base, root_label, config, language_filter, root);
@@ -263,6 +266,14 @@ fn walk_dir(
     }
 
     Ok(())
+}
+
+fn is_dot_prefixed_dir(entry: &fs::DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|name| name.starts_with('.'))
+        .unwrap_or(false)
 }
 
 fn process_file(
@@ -455,6 +466,8 @@ fn append_children(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parse_languages_supports_commas_and_spaces() {
@@ -473,5 +486,35 @@ mod tests {
     fn parse_languages_rejects_unknowns() {
         let err = parse_language_filter(&["Rust,NotALanguage".to_string()]).unwrap_err();
         assert!(err.contains("NotALanguage"));
+    }
+
+    #[test]
+    fn dot_prefixed_directory_detection() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("tloc-dotdir-test-{unique}"));
+        fs::create_dir_all(base.join(".git")).unwrap();
+        fs::create_dir_all(base.join("src")).unwrap();
+
+        let mut dot = None;
+        let mut normal = None;
+        for entry in fs::read_dir(&base).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name();
+            if name == ".git" {
+                dot = Some(entry);
+            } else if name == "src" {
+                normal = Some(entry);
+            }
+        }
+
+        let dot = dot.expect("missing .git dir entry");
+        let normal = normal.expect("missing src dir entry");
+        assert!(is_dot_prefixed_dir(&dot));
+        assert!(!is_dot_prefixed_dir(&normal));
+
+        fs::remove_dir_all(base).unwrap();
     }
 }
