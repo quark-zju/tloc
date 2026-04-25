@@ -109,7 +109,7 @@ fn parse_cli() -> Result<Cli, String> {
             .opt_value_from_str::<_, u8>("-p")
             .map_err(|e| e.to_string())?,
         pargs
-            .opt_value_from_str::<_, u8>("--min-parent-percentage-to-hide")
+            .opt_value_from_str::<_, u8>("--hide-below")
             .map_err(|e| e.to_string())?,
     )?;
 
@@ -160,12 +160,12 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
     Ok(Some(filter))
 }
 
-fn parse_parent_hide_percentage(short: Option<u8>, long: Option<u8>) -> Result<u8, String> {
-    if short.is_some() && long.is_some() {
-        return Err("Use only one of -p or --min-parent-percentage-to-hide, not both".to_string());
+fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Result<u8, String> {
+    if short.is_some() && hide_below.is_some() {
+        return Err("Use only one of -p or --hide-below, not both".to_string());
     }
 
-    let value = long.or(short).unwrap_or(90);
+    let value = hide_below.or(short).unwrap_or(90);
     if value > 100 {
         return Err(format!(
             "min parent percentage to hide must be in 0..=100, got {value}"
@@ -381,7 +381,7 @@ fn is_probably_binary(path: &Path) -> bool {
 
 fn print_help() {
     println!(
-        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>               Comma- or space-separated languages to include\n    -p, --min-parent-percentage-to-hide   Hide child nodes smaller than this % of parent (default: 90)\n    -h, --help                            Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
+        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 90)\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
     );
 }
 
