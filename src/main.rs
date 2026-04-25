@@ -225,7 +225,7 @@ fn parse_root_code_hide_percentage(
         return Err("Use only one of -p or --hide-below, not both".to_string());
     }
 
-    let value = hide_below.or(short).unwrap_or(16);
+    let value = hide_below.or(short).unwrap_or(10);
     if value > 100 {
         return Err(format!(
             "min root code percentage to hide must be in 0..=100, got {value}"
@@ -533,7 +533,7 @@ USAGE:
 OPTIONS:
     -L, --languages <LANGS>    Comma- or space-separated languages to include
     -X, --exclude <GLOB>       Skip a relative glob such as target or **/node_modules (repeatable)
-    -p, --hide-below <PCT>     Hide nodes below this % of total code (default: 16)
+    -p, --hide-below <PCT>     Hide nodes below this % of total code (default: 10)
     -h, --help                 Print help
 
 OUTPUT:
@@ -756,8 +756,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_root_code_hide_percentage_defaults_to_sixteen() {
-        assert_eq!(parse_root_code_hide_percentage(None, None).unwrap(), 16);
+    fn parse_root_code_hide_percentage_defaults_to_ten() {
+        assert_eq!(parse_root_code_hide_percentage(None, None).unwrap(), 10);
     }
 
     #[test]
