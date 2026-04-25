@@ -51,6 +51,7 @@ impl DirNode {
 struct Cli {
     roots: Vec<PathBuf>,
     language_filter: Option<BTreeSet<LanguageType>>,
+    min_parent_percentage_to_hide: u8,
 }
 
 fn main() {
@@ -75,7 +76,10 @@ fn main() {
         return;
     }
 
-    print!("{}", render_ascii_tree(&aggregate));
+    print!(
+        "{}",
+        render_ascii_tree(&aggregate, cli.min_parent_percentage_to_hide)
+    );
 }
 
 fn parse_cli() -> Result<Cli, String> {
@@ -100,6 +104,15 @@ fn parse_cli() -> Result<Cli, String> {
         raw_language_values.push(value);
     }
 
+    let min_parent_percentage_to_hide = parse_parent_hide_percentage(
+        pargs
+            .opt_value_from_str::<_, u8>("-p")
+            .map_err(|e| e.to_string())?,
+        pargs
+            .opt_value_from_str::<_, u8>("--min-parent-percentage-to-hide")
+            .map_err(|e| e.to_string())?,
+    )?;
+
     let free = pargs.finish();
     let roots = if free.is_empty() {
         vec![PathBuf::from(".")]
@@ -112,6 +125,7 @@ fn parse_cli() -> Result<Cli, String> {
     Ok(Cli {
         roots,
         language_filter,
+        min_parent_percentage_to_hide,
     })
 }
 
@@ -144,6 +158,21 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
     }
 
     Ok(Some(filter))
+}
+
+fn parse_parent_hide_percentage(short: Option<u8>, long: Option<u8>) -> Result<u8, String> {
+    if short.is_some() && long.is_some() {
+        return Err("Use only one of -p or --min-parent-percentage-to-hide, not both".to_string());
+    }
+
+    let value = long.or(short).unwrap_or(90);
+    if value > 100 {
+        return Err(format!(
+            "min parent percentage to hide must be in 0..=100, got {value}"
+        ));
+    }
+
+    Ok(value)
 }
 
 fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
@@ -352,7 +381,7 @@ fn is_probably_binary(path: &Path) -> bool {
 
 fn print_help() {
     println!(
-        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
+        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>               Comma- or space-separated languages to include\n    -p, --min-parent-percentage-to-hide   Hide child nodes smaller than this % of parent (default: 90)\n    -h, --help                            Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
     );
 }
 
@@ -409,7 +438,7 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
     }
 }
 
-fn render_ascii_tree(aggregate: &DirNode) -> String {
+fn render_ascii_tree(aggregate: &DirNode, min_parent_percentage_to_hide: u8) -> String {
     let mut tree: Tree<RenderNode> = Tree::default();
     let root_id = tree.push(
         0,
@@ -426,7 +455,10 @@ fn render_ascii_tree(aggregate: &DirNode) -> String {
 
     append_children(&mut tree, root_id, &aggregate.children);
 
-    let options = AsciiOptions::default();
+    let options = AsciiOptions {
+        min_duration_parent_percentage_to_hide: min_parent_percentage_to_hide,
+        ..Default::default()
+    };
     let descriptor = DirTreeDescriptor;
     let rows = tree.render_ascii_rows(&options, &descriptor);
     rows.to_string()
@@ -486,6 +518,17 @@ mod tests {
     fn parse_languages_rejects_unknowns() {
         let err = parse_language_filter(&["Rust,NotALanguage".to_string()]).unwrap_err();
         assert!(err.contains("NotALanguage"));
+    }
+
+    #[test]
+    fn parse_parent_hide_percentage_defaults_to_ninety() {
+        assert_eq!(parse_parent_hide_percentage(None, None).unwrap(), 90);
+    }
+
+    #[test]
+    fn parse_parent_hide_percentage_validates_range() {
+        let err = parse_parent_hide_percentage(Some(120), None).unwrap_err();
+        assert!(err.contains("0..=100"));
     }
 
     #[test]
