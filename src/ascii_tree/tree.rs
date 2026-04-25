@@ -38,6 +38,24 @@ pub trait DescribeTreeSpan<T> {
     fn source_title(&self) -> String {
         "Source".to_string()
     }
+    fn code(&self, _span: &TreeSpan<T>) -> String {
+        String::new()
+    }
+    fn code_title(&self) -> String {
+        String::new()
+    }
+    fn comment(&self, _span: &TreeSpan<T>) -> String {
+        String::new()
+    }
+    fn comment_title(&self) -> String {
+        String::new()
+    }
+    fn blank(&self, _span: &TreeSpan<T>) -> String {
+        String::new()
+    }
+    fn blank_title(&self) -> String {
+        String::new()
+    }
     fn start(&self, span: &TreeSpan<T>) -> String {
         span.start_time.to_string()
     }
@@ -173,6 +191,8 @@ impl<T> Tree<T> {
             id: usize,
             mut indent: usize,
             first_row_ch: char,
+            include_source: bool,
+            include_details: bool,
         ) {
             let span = &ctx.tree_spans[id];
             if span.is_root() {
@@ -180,51 +200,69 @@ impl<T> Tree<T> {
             }
 
             let name = ctx.desc.name(span);
-            let source_location = ctx.desc.source(span);
             if !name.is_empty() {
                 let start = ctx.desc.start(span);
                 let duration = ctx.desc.duration(span);
                 let call_count = ctx.desc.call_count(span);
-
-                let first_row = Row {
-                    columns: vec![
-                        start.to_string(),
-                        duration,
-                        format!(
-                            "{}{} {}{}",
-                            " ".repeat(indent),
-                            first_row_ch,
-                            name,
-                            call_count
-                        ),
-                        source_location,
-                    ],
-                };
+                let mut columns = vec![
+                    start.to_string(),
+                    duration,
+                    format!(
+                        "{}{} {}{}",
+                        " ".repeat(indent),
+                        first_row_ch,
+                        name,
+                        call_count
+                    ),
+                ];
+                if include_source {
+                    columns.push(ctx.desc.source(span));
+                }
+                if include_details {
+                    columns.push(ctx.desc.code(span));
+                    columns.push(ctx.desc.comment(span));
+                    columns.push(ctx.desc.blank(span));
+                }
+                let first_row = Row { columns };
                 out.rows.push(first_row);
 
-                // Extra metadata (other than name, source_location)
+                // Extra metadata (other than name and detail columns)
                 let extra_lines = ctx.desc.extra_metadata_lines(span);
                 if first_row_ch == '\\' {
                     indent += 1;
                 }
                 for line in extra_lines.iter() {
-                    let row = Row {
-                        columns: vec![
-                            String::new(),
-                            String::new(),
-                            format!("{}| {}", " ".repeat(indent), line),
-                            format!(":"),
-                        ],
-                    };
+                    let mut columns = vec![
+                        String::new(),
+                        String::new(),
+                        format!("{}| {}", " ".repeat(indent), line),
+                    ];
+                    if include_source || include_details {
+                        columns.push(":".to_string());
+                    }
+                    if include_source && include_details {
+                        columns.extend([String::new(), String::new(), String::new()]);
+                    } else if include_details {
+                        columns.extend([String::new(), String::new()]);
+                    }
+                    let row = Row { columns };
                     out.rows.push(row);
                 }
             }
         }
 
         /// Visit a span and its children recursively.
-        fn visit<T>(ctx: &Context<T>, out: &mut Output, id: usize, indent: usize, ch: char) {
+        fn visit<T>(
+            ctx: &Context<T>,
+            out: &mut Output,
+            id: usize,
+            indent: usize,
+            ch: char,
+            include_source: bool,
+            include_details: bool,
+        ) {
             // Print out this span.
-            render_tree_span(ctx, out, id, indent, ch);
+            render_tree_span(ctx, out, id, indent, ch, include_source, include_details);
 
             // Figure out children to visit.
             let child_ids: Vec<usize> = ctx.tree_spans[id]
@@ -264,24 +302,49 @@ impl<T> Tree<T> {
             };
 
             for id in child_ids {
-                visit(ctx, out, id, indent, ch)
+                visit(ctx, out, id, indent, ch, include_source, include_details)
             }
         }
 
-        let columns = vec![
+        let include_source = !desc.source_title().is_empty();
+        let include_details = !desc.code_title().is_empty()
+            || !desc.comment_title().is_empty()
+            || !desc.blank_title().is_empty();
+
+        let mut columns = vec![
             desc.start_title(),
             desc.duration_title(),
             "| Name".to_string(),
-            desc.source_title(),
         ];
-        let column_alignments = vec![
+        if include_source {
+            columns.push(desc.source_title());
+        }
+        if include_details {
+            columns.push(desc.code_title());
+            columns.push(desc.comment_title());
+            columns.push(desc.blank_title());
+        }
+        let mut column_alignments = vec![
             Alignment::Right, // start time
             Alignment::Right, // duration
             Alignment::Left,  // graph, name
-            Alignment::Left,  // module, line number
         ];
-        let column_min_widths = vec![4, 4, 20, 0];
-        let column_max_widths = vec![20, 20, 80, 80];
+        if include_source {
+            column_alignments.push(Alignment::Left);
+        }
+        if include_details {
+            column_alignments.extend([Alignment::Right, Alignment::Right, Alignment::Right]);
+        }
+        let mut column_min_widths = vec![4, 4, 20];
+        let mut column_max_widths = vec![20, 20, 80];
+        if include_source {
+            column_min_widths.push(0);
+            column_max_widths.push(80);
+        }
+        if include_details {
+            column_min_widths.extend([0, 0, 0]);
+            column_max_widths.extend([20, 20, 20]);
+        }
 
         let context = Context {
             opts,
@@ -292,7 +355,15 @@ impl<T> Tree<T> {
             rows: vec![Row { columns }],
         };
 
-        visit(&context, &mut out, 0, 0, '|');
+        visit(
+            &context,
+            &mut out,
+            0,
+            0,
+            '|',
+            include_source,
+            include_details,
+        );
 
         Rows {
             rows: out.rows,

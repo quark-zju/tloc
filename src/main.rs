@@ -401,19 +401,38 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
             .unwrap_or_default()
     }
 
-    fn source(&self, span: &TreeSpan<RenderNode>) -> String {
+    fn source_title(&self) -> String {
+        String::new()
+    }
+
+    fn code(&self, span: &TreeSpan<RenderNode>) -> String {
         span.extra
             .as_ref()
-            .map(|n| {
-                format!(
-                    "code:{} comment:{} blank:{}",
-                    n.stats.code, n.stats.comments, n.stats.blanks
-                )
-            })
+            .map(|n| n.stats.code.to_string())
             .unwrap_or_default()
     }
-    fn source_title(&self) -> String {
-        "Details".to_string()
+    fn code_title(&self) -> String {
+        "Code".to_string()
+    }
+
+    fn comment(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| n.stats.comments.to_string())
+            .unwrap_or_default()
+    }
+    fn comment_title(&self) -> String {
+        "Comment".to_string()
+    }
+
+    fn blank(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| n.stats.blanks.to_string())
+            .unwrap_or_default()
+    }
+    fn blank_title(&self) -> String {
+        "Blank".to_string()
     }
 
     fn start(&self, span: &TreeSpan<RenderNode>) -> String {
