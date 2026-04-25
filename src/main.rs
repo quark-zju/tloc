@@ -355,11 +355,9 @@ fn process_file(
     }
 
     let relative = file_path.strip_prefix(base).unwrap_or(file_path);
-    if let Some(parent) = relative.parent() {
-        for component in parent.components() {
-            if let Component::Normal(value) = component {
-                components.push(value.to_string_lossy().to_string());
-            }
+    for component in relative.components() {
+        if let Component::Normal(value) = component {
+            components.push(value.to_string_lossy().to_string());
         }
     }
 
