@@ -78,7 +78,11 @@ fn main() {
 
     print!(
         "{}",
-        render_ascii_tree(&aggregate, cli.min_parent_percentage_to_hide)
+        render_ascii_tree(
+            &aggregate,
+            cli.min_parent_percentage_to_hide,
+            cli.roots.len() > 1,
+        )
     );
 }
 
@@ -457,20 +461,28 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
     }
 }
 
-fn render_ascii_tree(aggregate: &DirNode, min_parent_percentage_to_hide: u8) -> String {
+fn render_ascii_tree(
+    aggregate: &DirNode,
+    min_parent_percentage_to_hide: u8,
+    show_virtual_root: bool,
+) -> String {
     let mut tree: Tree<RenderNode> = Tree::default();
-    let root_id = tree.push(
-        0,
-        TreeSpan {
-            start_time: aggregate.stats.files as u64,
-            duration: aggregate.stats.lines as u64,
-            extra: Some(RenderNode {
-                name: ".".to_string(),
-                stats: aggregate.stats,
-            }),
-            ..Default::default()
-        },
-    );
+    let root_id = if show_virtual_root {
+        tree.push(
+            0,
+            TreeSpan {
+                start_time: aggregate.stats.files as u64,
+                duration: aggregate.stats.lines as u64,
+                extra: Some(RenderNode {
+                    name: ".".to_string(),
+                    stats: aggregate.stats,
+                }),
+                ..Default::default()
+            },
+        )
+    } else {
+        0
+    };
 
     append_children(&mut tree, root_id, &aggregate.children);
 
