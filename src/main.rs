@@ -411,7 +411,19 @@ fn is_probably_binary(path: &Path) -> bool {
 
 fn print_help() {
     println!(
-        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
+        r#"tloc - directory-based code line counter
+
+USAGE:
+    tloc [OPTIONS] [PATH ...]
+
+OPTIONS:
+    -L, --languages <LANGS>    Comma- or space-separated languages to include
+    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)
+    -h, --help                 Print help
+
+OUTPUT:
+    ASCII directory tree with files/code summary and line breakdown
+"#
     );
 }
 
