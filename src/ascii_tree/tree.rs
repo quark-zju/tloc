@@ -215,13 +215,13 @@ impl<T> Tree<T> {
                         call_count
                     ),
                 ];
-                if include_source {
-                    columns.push(ctx.desc.source(span));
-                }
                 if include_details {
                     columns.push(ctx.desc.code(span));
                     columns.push(ctx.desc.comment(span));
                     columns.push(ctx.desc.blank(span));
+                }
+                if include_source {
+                    columns.push(ctx.desc.source(span));
                 }
                 let first_row = Row { columns };
                 out.rows.push(first_row);
@@ -237,12 +237,12 @@ impl<T> Tree<T> {
                         String::new(),
                         format!("{}| {}", " ".repeat(indent), line),
                     ];
-                    if include_source || include_details {
+                    if include_details || include_source {
                         columns.push(":".to_string());
                     }
-                    if include_source && include_details {
+                    if include_details && include_source {
                         columns.extend([String::new(), String::new(), String::new()]);
-                    } else if include_details {
+                    } else if include_details || include_source {
                         columns.extend([String::new(), String::new()]);
                     }
                     let row = Row { columns };
@@ -316,34 +316,34 @@ impl<T> Tree<T> {
             desc.duration_title(),
             "| Name".to_string(),
         ];
-        if include_source {
-            columns.push(desc.source_title());
-        }
         if include_details {
             columns.push(desc.code_title());
             columns.push(desc.comment_title());
             columns.push(desc.blank_title());
+        }
+        if include_source {
+            columns.push(desc.source_title());
         }
         let mut column_alignments = vec![
             Alignment::Right, // start time
             Alignment::Right, // duration
             Alignment::Left,  // graph, name
         ];
-        if include_source {
-            column_alignments.push(Alignment::Left);
-        }
         if include_details {
             column_alignments.extend([Alignment::Right, Alignment::Right, Alignment::Right]);
         }
+        if include_source {
+            column_alignments.push(Alignment::Left);
+        }
         let mut column_min_widths = vec![4, 4, 20];
         let mut column_max_widths = vec![20, 20, 80];
-        if include_source {
-            column_min_widths.push(0);
-            column_max_widths.push(80);
-        }
         if include_details {
             column_min_widths.extend([0, 0, 0]);
             column_max_widths.extend([20, 20, 20]);
+        }
+        if include_source {
+            column_min_widths.push(0);
+            column_max_widths.push(80);
         }
 
         let context = Context {
