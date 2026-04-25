@@ -231,8 +231,8 @@ impl<T> Tree<T> {
                 .children
                 .iter()
                 .cloned()
-                .filter(|&id| {
-                    ctx.tree_spans[id].is_interesting(ctx.opts, Some(&ctx.tree_spans[id]))
+                .filter(|&child_id| {
+                    ctx.tree_spans[child_id].is_interesting(ctx.opts, Some(&ctx.tree_spans[id]))
                 })
                 .collect();
 

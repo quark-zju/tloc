@@ -103,4 +103,42 @@ Start Dur.ms | Name               Source
 "#
         );
     }
+
+    #[test]
+    fn test_parent_percentage_hide() {
+        let mut tree = Tree::default();
+        for (parent, start_time, duration, extra) in [
+            (0, 0, 1000, "root"),
+            (1, 0, 600, "keep"),
+            (1, 600, 100, "hide"),
+        ] {
+            let span = TreeSpan {
+                start_time,
+                duration,
+                extra: Some(extra),
+                ..Default::default()
+            };
+            tree.push(parent, span);
+        }
+
+        struct Desc;
+        impl DescribeTreeSpan<&'static str> for Desc {
+            fn name(&self, span: &TreeSpan<&'static str>) -> String {
+                span.extra.unwrap_or_default().to_string()
+            }
+        }
+
+        let desc = Desc;
+        let rows = tree.render_ascii_rows(
+            &AsciiOptions {
+                min_duration_parent_percentage_to_hide: 50,
+                ..Default::default()
+            },
+            &desc,
+        );
+        let output = rows.to_string();
+
+        assert!(output.contains("keep"));
+        assert!(!output.contains("hide"));
+    }
 }
