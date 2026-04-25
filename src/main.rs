@@ -628,6 +628,8 @@ fn render_ascii_tree(
     root_name: String,
 ) -> String {
     let mut tree: Tree<RenderNode> = Tree::default();
+    // ascii-tree was originally built for profiler output. In tloc, fields like
+    // duration carry code-line values for tree filtering rather than time.
     let root_id = tree.push(
         0,
         TreeSpan {
