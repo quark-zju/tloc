@@ -3,12 +3,13 @@ name = "tloc"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Directory-first source line counter with tree-style output and language breakdown"
+description = "Lines of code counter with tree-style output"
 license = "MIT"
 readme = "README.md"
 documentation = "https://docs.rs/tloc"
 keywords = ["cloc", "tokei", "loc", "code-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+repository = "https://github.com/quark-zju/tloc"
 
 [dependencies]
 pico-args = "0.5.0"
