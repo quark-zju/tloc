@@ -4,6 +4,8 @@ Tree-style Lines Of Code counter.
 
 Like [tokei](https://github.com/XAMPPRocky/tokei) or [cloc](https://github.com/aldanial/cloc), but with directory trees.
 
+Install: `cargo install tloc`
+
 
 ## Example
 
