@@ -1,3 +1,4 @@
+#[allow(dead_code, unused)]
 mod ascii_tree;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -5,6 +6,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
+use ascii_tree::{AsciiOptions, DescribeTreeSpan, Tree, TreeSpan};
 use pico_args::Arguments;
 use tokei::{Config, LanguageType};
 
@@ -68,14 +70,12 @@ fn main() {
         }
     };
 
-    println!(
-        "files={} lines={} code={} comments={} blanks={}",
-        aggregate.stats.files,
-        aggregate.stats.lines,
-        aggregate.stats.code,
-        aggregate.stats.comments,
-        aggregate.stats.blanks
-    );
+    if aggregate.stats.files == 0 {
+        println!("No matching source files found.");
+        return;
+    }
+
+    print!("{}", render_ascii_tree(&aggregate));
 }
 
 fn parse_cli() -> Result<Cli, String> {
@@ -341,8 +341,109 @@ fn is_probably_binary(path: &Path) -> bool {
 
 fn print_help() {
     println!(
-        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -h, --help                 Print help\n"
+        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
     );
+}
+
+#[derive(Clone, Debug, Default)]
+struct RenderNode {
+    name: String,
+    stats: LineStats,
+}
+
+struct DirTreeDescriptor;
+
+impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
+    fn name(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| n.name.clone())
+            .unwrap_or_default()
+    }
+
+    fn source(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| {
+                format!(
+                    "lines:{} comments:{} blanks:{}",
+                    n.stats.lines, n.stats.comments, n.stats.blanks
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    fn start(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| n.stats.files.to_string())
+            .unwrap_or_default()
+    }
+
+    fn duration(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| format!("+{}", n.stats.code))
+            .unwrap_or_default()
+    }
+
+    fn duration_title(&self) -> String {
+        "Code".to_string()
+    }
+}
+
+fn render_ascii_tree(aggregate: &DirNode) -> String {
+    let mut tree: Tree<RenderNode> = Tree::default();
+    let root_id = tree.push(
+        0,
+        TreeSpan {
+            start_time: aggregate.stats.files as u64,
+            duration: aggregate.stats.code as u64,
+            extra: Some(RenderNode {
+                name: ".".to_string(),
+                stats: aggregate.stats,
+            }),
+            ..Default::default()
+        },
+    );
+
+    append_children(&mut tree, root_id, &aggregate.children);
+
+    let options = AsciiOptions::default();
+    let descriptor = DirTreeDescriptor;
+    let rows = tree.render_ascii_rows(&options, &descriptor);
+    rows.to_string()
+}
+
+fn append_children(
+    tree: &mut Tree<RenderNode>,
+    parent_id: usize,
+    children: &BTreeMap<String, DirNode>,
+) {
+    let mut items: Vec<(&String, &DirNode)> = children.iter().collect();
+    items.sort_by(|(name_a, node_a), (name_b, node_b)| {
+        node_b
+            .stats
+            .code
+            .cmp(&node_a.stats.code)
+            .then_with(|| name_a.cmp(name_b))
+    });
+
+    for (name, node) in items {
+        let node_id = tree.push(
+            parent_id,
+            TreeSpan {
+                start_time: node.stats.files as u64,
+                duration: node.stats.code as u64,
+                extra: Some(RenderNode {
+                    name: name.clone(),
+                    stats: node.stats,
+                }),
+                ..Default::default()
+            },
+        );
+        append_children(tree, node_id, &node.children);
+    }
 }
 
 #[cfg(test)]
