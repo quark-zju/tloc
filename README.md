@@ -1,8 +1,9 @@
 # tloc
 
-`tloc` is a fast code line counter for real projects.
-It shows a compact tree view so you can see where code volume concentrates across directories and files.
-Each node includes `LOC`, `Code`, `Comment`, `Blank`, and dominant languages, making hotspots obvious at a glance.
+Tree-style Lines Of Code counter.
+
+Like [tokei](https://github.com/XAMPPRocky/tokei) or [cloc](https://github.com/aldanial/cloc), but with directory trees.
+
 
 ## Example
 
@@ -37,7 +38,7 @@ Files    LOC | Name                           Code Comment Blank Language
     1  72362   | swagger-ui-bundle.js        60899   11463     0 JavaScript
 ```
 
-## Python-Only Example
+Filter by language:
 
 ```text
 % tloc open-webui -L python
