@@ -563,11 +563,16 @@ fn render_language_summary(language_lines: &BTreeMap<String, usize>) -> String {
     languages.sort_by(|(name_a, lines_a), (name_b, lines_b)| {
         lines_b.cmp(lines_a).then_with(|| name_a.cmp(name_b))
     });
-    languages
+    let total = languages.len();
+    let mut parts: Vec<&str> = languages
         .into_iter()
+        .take(6)
         .map(|(name, _)| name.as_str())
-        .collect::<Vec<_>>()
-        .join(",")
+        .collect();
+    if total > 6 {
+        parts.push("...");
+    }
+    parts.join(",")
 }
 
 #[cfg(test)]
@@ -613,6 +618,19 @@ mod tests {
         input.insert("TypeScript".to_string(), 240);
         input.insert("Python".to_string(), 120);
         assert_eq!(render_language_summary(&input), "TypeScript,Python,Rust");
+    }
+
+    #[test]
+    fn render_language_summary_limits_to_six_with_ellipsis() {
+        let mut input = BTreeMap::new();
+        input.insert("A".to_string(), 70);
+        input.insert("B".to_string(), 60);
+        input.insert("C".to_string(), 50);
+        input.insert("D".to_string(), 40);
+        input.insert("E".to_string(), 30);
+        input.insert("F".to_string(), 20);
+        input.insert("G".to_string(), 10);
+        assert_eq!(render_language_summary(&input), "A,B,C,D,E,F,...");
     }
 
     #[test]
