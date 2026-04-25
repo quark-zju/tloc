@@ -55,7 +55,7 @@ struct Cli {
     roots: Vec<PathBuf>,
     language_filter: Option<BTreeSet<LanguageType>>,
     exclude_matcher: GlobSet,
-    min_parent_percentage_to_hide: u8,
+    min_root_code_percentage_to_hide: u8,
 }
 
 fn main() {
@@ -84,7 +84,7 @@ fn main() {
         "{}",
         render_ascii_tree(
             &aggregate,
-            cli.min_parent_percentage_to_hide,
+            cli.min_root_code_percentage_to_hide,
             root_render_name(&cli.roots),
         )
     );
@@ -126,7 +126,7 @@ fn parse_cli() -> Result<Cli, String> {
         raw_excluded_paths.push(value);
     }
 
-    let min_parent_percentage_to_hide = parse_parent_hide_percentage(
+    let min_root_code_percentage_to_hide = parse_root_code_hide_percentage(
         pargs
             .opt_value_from_str::<_, u8>("-p")
             .map_err(|e| e.to_string())?,
@@ -149,7 +149,7 @@ fn parse_cli() -> Result<Cli, String> {
         roots,
         language_filter,
         exclude_matcher,
-        min_parent_percentage_to_hide,
+        min_root_code_percentage_to_hide,
     })
 }
 
@@ -217,7 +217,10 @@ fn add_exclude_glob(builder: &mut GlobSetBuilder, pattern: &str) -> Result<(), S
     Ok(())
 }
 
-fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Result<u8, String> {
+fn parse_root_code_hide_percentage(
+    short: Option<u8>,
+    hide_below: Option<u8>,
+) -> Result<u8, String> {
     if short.is_some() && hide_below.is_some() {
         return Err("Use only one of -p or --hide-below, not both".to_string());
     }
@@ -225,7 +228,7 @@ fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Re
     let value = hide_below.or(short).unwrap_or(16);
     if value > 100 {
         return Err(format!(
-            "min parent percentage to hide must be in 0..=100, got {value}"
+            "min root code percentage to hide must be in 0..=100, got {value}"
         ));
     }
 
@@ -530,7 +533,7 @@ USAGE:
 OPTIONS:
     -L, --languages <LANGS>    Comma- or space-separated languages to include
     -X, --exclude <GLOB>       Skip a relative glob such as target or **/node_modules (repeatable)
-    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)
+    -p, --hide-below <PCT>     Hide nodes below this % of total code (default: 16)
     -h, --help                 Print help
 
 OUTPUT:
@@ -621,7 +624,7 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
 
 fn render_ascii_tree(
     aggregate: &DirNode,
-    min_parent_percentage_to_hide: u8,
+    min_root_code_percentage_to_hide: u8,
     root_name: String,
 ) -> String {
     let mut tree: Tree<RenderNode> = Tree::default();
@@ -629,7 +632,7 @@ fn render_ascii_tree(
         0,
         TreeSpan {
             start_time: aggregate.stats.files as u64,
-            duration: aggregate.stats.lines as u64,
+            duration: aggregate.stats.code as u64,
             extra: Some(RenderNode {
                 name: root_name,
                 languages: render_language_summary(&aggregate.language_lines),
@@ -641,8 +644,10 @@ fn render_ascii_tree(
 
     append_children(&mut tree, root_id, &aggregate.children);
 
+    let min_code_to_hide =
+        (aggregate.stats.code as u64 * min_root_code_percentage_to_hide as u64) / 100;
     let options = AsciiOptions {
-        min_duration_parent_percentage_to_hide: min_parent_percentage_to_hide,
+        min_duration_to_hide: min_code_to_hide,
         ..Default::default()
     };
     let descriptor = DirTreeDescriptor;
@@ -669,7 +674,7 @@ fn append_children(
             parent_id,
             TreeSpan {
                 start_time: node.stats.files as u64,
-                duration: node.stats.lines as u64,
+                duration: node.stats.code as u64,
                 extra: Some(RenderNode {
                     name: name.clone(),
                     languages: render_language_summary(&node.language_lines),
@@ -749,14 +754,65 @@ mod tests {
     }
 
     #[test]
-    fn parse_parent_hide_percentage_defaults_to_sixteen() {
-        assert_eq!(parse_parent_hide_percentage(None, None).unwrap(), 16);
+    fn parse_root_code_hide_percentage_defaults_to_sixteen() {
+        assert_eq!(parse_root_code_hide_percentage(None, None).unwrap(), 16);
     }
 
     #[test]
-    fn parse_parent_hide_percentage_validates_range() {
-        let err = parse_parent_hide_percentage(Some(120), None).unwrap_err();
+    fn parse_root_code_hide_percentage_validates_range() {
+        let err = parse_root_code_hide_percentage(Some(120), None).unwrap_err();
         assert!(err.contains("0..=100"));
+    }
+
+    #[test]
+    fn render_ascii_tree_hides_by_root_code_percentage() {
+        let mut root = DirNode::default();
+        root.stats = LineStats {
+            files: 3,
+            lines: 130,
+            code: 100,
+            comments: 20,
+            blanks: 10,
+        };
+
+        let mut large = DirNode::default();
+        large.stats = LineStats {
+            files: 2,
+            lines: 80,
+            code: 60,
+            comments: 15,
+            blanks: 5,
+        };
+
+        let mut small_child = DirNode::default();
+        small_child.stats = LineStats {
+            files: 1,
+            lines: 15,
+            code: 10,
+            comments: 4,
+            blanks: 1,
+        };
+        large
+            .children
+            .insert("small_child.rs".to_string(), small_child);
+
+        let mut medium = DirNode::default();
+        medium.stats = LineStats {
+            files: 1,
+            lines: 35,
+            code: 30,
+            comments: 1,
+            blanks: 4,
+        };
+
+        root.children.insert("large".to_string(), large);
+        root.children.insert("medium.rs".to_string(), medium);
+
+        let output = render_ascii_tree(&root, 16, "root".to_string());
+
+        assert!(output.contains("large"));
+        assert!(output.contains("medium.rs"));
+        assert!(!output.contains("small_child.rs"));
     }
 
     #[test]
