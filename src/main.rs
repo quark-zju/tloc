@@ -165,7 +165,7 @@ fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Re
         return Err("Use only one of -p or --hide-below, not both".to_string());
     }
 
-    let value = hide_below.or(short).unwrap_or(90);
+    let value = hide_below.or(short).unwrap_or(16);
     if value > 100 {
         return Err(format!(
             "min parent percentage to hide must be in 0..=100, got {value}"
@@ -381,7 +381,7 @@ fn is_probably_binary(path: &Path) -> bool {
 
 fn print_help() {
     println!(
-        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 90)\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
+        "tloc - directory-based code line counter\n\nUSAGE:\n    tloc [OPTIONS] [PATH ...]\n\nOPTIONS:\n    -L, --languages <LANGS>    Comma- or space-separated languages to include\n    -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)\n    -h, --help                 Print help\n\nOUTPUT:\n    ASCII directory tree with files/code summary and line breakdown\n"
     );
 }
 
@@ -521,8 +521,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_parent_hide_percentage_defaults_to_ninety() {
-        assert_eq!(parse_parent_hide_percentage(None, None).unwrap(), 90);
+    fn parse_parent_hide_percentage_defaults_to_sixteen() {
+        assert_eq!(parse_parent_hide_percentage(None, None).unwrap(), 16);
     }
 
     #[test]
