@@ -6,6 +6,7 @@ Like [tokei](https://github.com/XAMPPRocky/tokei) or [cloc](https://github.com/a
 
 Install: `cargo install tloc`
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Example
 
