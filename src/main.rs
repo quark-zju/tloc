@@ -32,17 +32,19 @@ impl std::ops::AddAssign for LineStats {
 #[derive(Debug, Default)]
 struct DirNode {
     stats: LineStats,
+    language_lines: BTreeMap<String, usize>,
     children: BTreeMap<String, DirNode>,
 }
 
 impl DirNode {
-    fn add_file(&mut self, components: &[String], stats: LineStats) {
+    fn add_file(&mut self, components: &[String], stats: LineStats, language: &str) {
         self.stats += stats;
+        *self.language_lines.entry(language.to_string()).or_default() += stats.lines;
         if let Some((head, tail)) = components.split_first() {
             self.children
                 .entry(head.clone())
                 .or_default()
-                .add_file(tail, stats);
+                .add_file(tail, stats, language);
         }
     }
 }
@@ -373,6 +375,7 @@ fn process_file(
         comments: stats.comments,
         blanks: stats.blanks,
     };
+    let language_name = language.name().to_string();
 
     let mut components = Vec::new();
     if let Some(label) = root_label {
@@ -386,7 +389,7 @@ fn process_file(
         }
     }
 
-    root.add_file(&components, file_stats);
+    root.add_file(&components, file_stats, &language_name);
 }
 
 fn is_probably_binary(path: &Path) -> bool {
@@ -415,6 +418,7 @@ fn print_help() {
 #[derive(Clone, Debug, Default)]
 struct RenderNode {
     name: String,
+    languages: String,
     stats: LineStats,
 }
 
@@ -429,7 +433,14 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
     }
 
     fn source_title(&self) -> String {
-        String::new()
+        "Language".to_string()
+    }
+
+    fn source(&self, span: &TreeSpan<RenderNode>) -> String {
+        span.extra
+            .as_ref()
+            .map(|n| n.languages.clone())
+            .unwrap_or_default()
     }
 
     fn code(&self, span: &TreeSpan<RenderNode>) -> String {
@@ -497,6 +508,7 @@ fn render_ascii_tree(
             duration: aggregate.stats.lines as u64,
             extra: Some(RenderNode {
                 name: root_name,
+                languages: render_language_summary(&aggregate.language_lines),
                 stats: aggregate.stats,
             }),
             ..Default::default()
@@ -536,6 +548,7 @@ fn append_children(
                 duration: node.stats.lines as u64,
                 extra: Some(RenderNode {
                     name: name.clone(),
+                    languages: render_language_summary(&node.language_lines),
                     stats: node.stats,
                 }),
                 ..Default::default()
@@ -543,6 +556,18 @@ fn append_children(
         );
         append_children(tree, node_id, &node.children);
     }
+}
+
+fn render_language_summary(language_lines: &BTreeMap<String, usize>) -> String {
+    let mut languages: Vec<(&String, &usize)> = language_lines.iter().collect();
+    languages.sort_by(|(name_a, lines_a), (name_b, lines_b)| {
+        lines_b.cmp(lines_a).then_with(|| name_a.cmp(name_b))
+    });
+    languages
+        .into_iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]
@@ -579,6 +604,15 @@ mod tests {
     fn parse_parent_hide_percentage_validates_range() {
         let err = parse_parent_hide_percentage(Some(120), None).unwrap_err();
         assert!(err.contains("0..=100"));
+    }
+
+    #[test]
+    fn render_language_summary_sorts_by_lines_desc() {
+        let mut input = BTreeMap::new();
+        input.insert("Rust".to_string(), 120);
+        input.insert("TypeScript".to_string(), 240);
+        input.insert("Python".to_string(), 120);
+        assert_eq!(render_language_summary(&input), "TypeScript,Python,Rust");
     }
 
     #[test]
