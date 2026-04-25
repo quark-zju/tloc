@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-pub use crate::AsciiOptions;
+pub use super::AsciiOptions;
 
 #[derive(Clone)]
 pub struct TreeSpan<T> {

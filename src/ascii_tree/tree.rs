@@ -8,11 +8,11 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::AsciiOptions;
-use crate::TreeSpan;
-use crate::row::Alignment;
-use crate::row::Row;
-use crate::row::Rows;
+use super::AsciiOptions;
+use super::TreeSpan;
+use super::row::Alignment;
+use super::row::Row;
+use super::row::Rows;
 
 #[derive(Clone)]
 pub struct Tree<T>(pub Vec<TreeSpan<T>>);
