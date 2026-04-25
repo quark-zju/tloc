@@ -53,6 +53,7 @@ impl DirNode {
 struct Cli {
     roots: Vec<PathBuf>,
     language_filter: Option<BTreeSet<LanguageType>>,
+    excluded_paths: Vec<PathBuf>,
     min_parent_percentage_to_hide: u8,
 }
 
@@ -110,6 +111,20 @@ fn parse_cli() -> Result<Cli, String> {
         raw_language_values.push(value);
     }
 
+    let mut raw_excluded_paths = Vec::new();
+    while let Some(value) = pargs
+        .opt_value_from_str::<_, PathBuf>("-X")
+        .map_err(|e| e.to_string())?
+    {
+        raw_excluded_paths.push(value);
+    }
+    while let Some(value) = pargs
+        .opt_value_from_str::<_, PathBuf>("--exclude")
+        .map_err(|e| e.to_string())?
+    {
+        raw_excluded_paths.push(value);
+    }
+
     let min_parent_percentage_to_hide = parse_parent_hide_percentage(
         pargs
             .opt_value_from_str::<_, u8>("-p")
@@ -127,10 +142,12 @@ fn parse_cli() -> Result<Cli, String> {
     };
 
     let language_filter = parse_language_filter(&raw_language_values)?;
+    let excluded_paths = parse_excluded_paths(raw_excluded_paths)?;
 
     Ok(Cli {
         roots,
         language_filter,
+        excluded_paths,
         min_parent_percentage_to_hide,
     })
 }
@@ -164,6 +181,22 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
     }
 
     Ok(Some(filter))
+}
+
+fn parse_excluded_paths(raw_paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    raw_paths
+        .into_iter()
+        .map(|path| {
+            if path.is_absolute() {
+                return Err(format!(
+                    "-X/--exclude expects a path relative to the current directory, got {}",
+                    path.display()
+                ));
+            }
+
+            Ok(normalize_relative_path(&path))
+        })
+        .collect()
 }
 
 fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Result<u8, String> {
@@ -201,6 +234,10 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
         };
 
         if root_metadata.is_file() {
+            if is_excluded_path(root_path, &cli.excluded_paths) {
+                continue;
+            }
+
             process_file(
                 root_path,
                 root_path.parent().unwrap_or_else(|| Path::new(".")),
@@ -218,6 +255,7 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
             &root_label,
             &config,
             &cli.language_filter,
+            &cli.excluded_paths,
             &mut root,
         )?;
     }
@@ -283,6 +321,7 @@ fn walk_dir(
     root_label: &Option<String>,
     config: &Config,
     language_filter: &Option<BTreeSet<LanguageType>>,
+    excluded_paths: &[PathBuf],
     root: &mut DirNode,
 ) -> io::Result<()> {
     let entries = match fs::read_dir(dir) {
@@ -303,6 +342,10 @@ fn walk_dir(
         };
 
         let path = entry.path();
+        if is_excluded_path(&path, excluded_paths) {
+            continue;
+        }
+
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(err) => {
@@ -319,7 +362,15 @@ fn walk_dir(
             if is_dot_prefixed_dir(&entry) {
                 continue;
             }
-            walk_dir(base, &path, root_label, config, language_filter, root)?;
+            walk_dir(
+                base,
+                &path,
+                root_label,
+                config,
+                language_filter,
+                excluded_paths,
+                root,
+            )?;
         } else if file_type.is_file() {
             process_file(&path, base, root_label, config, language_filter, root);
         }
@@ -334,6 +385,44 @@ fn is_dot_prefixed_dir(entry: &fs::DirEntry) -> bool {
         .to_str()
         .map(|name| name.starts_with('.'))
         .unwrap_or(false)
+}
+
+fn is_excluded_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
+    if excluded_paths.is_empty() {
+        return false;
+    }
+
+    let relative_path = path_relative_to_current_dir(path);
+    excluded_paths
+        .iter()
+        .any(|excluded| relative_path == *excluded || relative_path.starts_with(excluded))
+}
+
+fn path_relative_to_current_dir(path: &Path) -> PathBuf {
+    let current_dir = std::env::current_dir().ok();
+    let relative = current_dir
+        .as_deref()
+        .and_then(|current_dir| path.strip_prefix(current_dir).ok())
+        .unwrap_or(path);
+
+    normalize_relative_path(relative)
+}
+
+fn normalize_relative_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(value) => normalized.push(value),
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push("..");
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    normalized
 }
 
 fn process_file(
@@ -418,6 +507,7 @@ USAGE:
 
 OPTIONS:
     -L, --languages <LANGS>    Comma- or space-separated languages to include
+    -X, --exclude <PATH>       Skip a path relative to the current directory (repeatable)
     -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)
     -h, --help                 Print help
 
@@ -613,6 +703,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_excluded_paths_normalizes_relative_paths() {
+        let parsed = parse_excluded_paths(vec![
+            PathBuf::from("./target"),
+            PathBuf::from("src/../generated"),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            parsed,
+            vec![PathBuf::from("target"), PathBuf::from("generated")]
+        );
+    }
+
+    #[test]
+    fn parse_excluded_paths_rejects_absolute_paths() {
+        let err = parse_excluded_paths(vec![PathBuf::from("/tmp/build")]).unwrap_err();
+        assert!(err.contains("relative to the current directory"));
+    }
+
+    #[test]
     fn parse_parent_hide_percentage_defaults_to_sixteen() {
         assert_eq!(parse_parent_hide_percentage(None, None).unwrap(), 16);
     }
@@ -673,5 +783,21 @@ mod tests {
         assert!(!is_dot_prefixed_dir(&normal));
 
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn excluded_path_matches_path_and_descendants() {
+        let excluded = vec![PathBuf::from("target")];
+
+        assert!(is_excluded_path(Path::new("target"), &excluded));
+        assert!(is_excluded_path(
+            Path::new("target/debug/build.rs"),
+            &excluded
+        ));
+        assert!(!is_excluded_path(
+            Path::new("src/target/debug/build.rs"),
+            &excluded
+        ));
+        assert!(!is_excluded_path(Path::new("targeted/file.rs"), &excluded));
     }
 }
