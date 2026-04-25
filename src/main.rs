@@ -81,7 +81,7 @@ fn main() {
         render_ascii_tree(
             &aggregate,
             cli.min_parent_percentage_to_hide,
-            cli.roots.len() > 1,
+            root_render_name(&cli.roots),
         )
     );
 }
@@ -225,16 +225,41 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
 
 fn compute_root_labels(roots: &[PathBuf]) -> Vec<Option<String>> {
     if roots.len() == 1 {
-        let single = roots[0].as_path();
-        if single == Path::new(".") {
-            return vec![None];
-        }
+        return vec![None];
     }
 
     roots
         .iter()
         .map(|root| Some(path_display_label(root)))
         .collect()
+}
+
+fn root_render_name(roots: &[PathBuf]) -> String {
+    if roots.len() > 1 {
+        return ".".to_string();
+    }
+
+    let root = roots
+        .first()
+        .map(PathBuf::as_path)
+        .unwrap_or_else(|| Path::new("."));
+
+    if root == Path::new(".") {
+        if let Ok(current) = std::env::current_dir()
+            && let Some(name) = current.file_name()
+        {
+            let label = name.to_string_lossy().to_string();
+            if !label.is_empty() {
+                return label;
+            }
+        }
+        return ".".to_string();
+    }
+
+    root.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| path_display_label(root))
 }
 
 fn path_display_label(path: &Path) -> String {
@@ -462,25 +487,21 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
 fn render_ascii_tree(
     aggregate: &DirNode,
     min_parent_percentage_to_hide: u8,
-    show_virtual_root: bool,
+    root_name: String,
 ) -> String {
     let mut tree: Tree<RenderNode> = Tree::default();
-    let root_id = if show_virtual_root {
-        tree.push(
-            0,
-            TreeSpan {
-                start_time: aggregate.stats.files as u64,
-                duration: aggregate.stats.lines as u64,
-                extra: Some(RenderNode {
-                    name: ".".to_string(),
-                    stats: aggregate.stats,
-                }),
-                ..Default::default()
-            },
-        )
-    } else {
-        0
-    };
+    let root_id = tree.push(
+        0,
+        TreeSpan {
+            start_time: aggregate.stats.files as u64,
+            duration: aggregate.stats.lines as u64,
+            extra: Some(RenderNode {
+                name: root_name,
+                stats: aggregate.stats,
+            }),
+            ..Default::default()
+        },
+    );
 
     append_children(&mut tree, root_id, &aggregate.children);
 
