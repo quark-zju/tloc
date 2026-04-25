@@ -366,11 +366,14 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
             .as_ref()
             .map(|n| {
                 format!(
-                    "lines:{} comments:{} blanks:{}",
-                    n.stats.lines, n.stats.comments, n.stats.blanks
+                    "code:{} comment:{} blank:{}",
+                    n.stats.code, n.stats.comments, n.stats.blanks
                 )
             })
             .unwrap_or_default()
+    }
+    fn source_title(&self) -> String {
+        "Details".to_string()
     }
 
     fn start(&self, span: &TreeSpan<RenderNode>) -> String {
@@ -379,16 +382,19 @@ impl DescribeTreeSpan<RenderNode> for DirTreeDescriptor {
             .map(|n| n.stats.files.to_string())
             .unwrap_or_default()
     }
+    fn start_title(&self) -> String {
+        "Files".to_string()
+    }
 
     fn duration(&self, span: &TreeSpan<RenderNode>) -> String {
         span.extra
             .as_ref()
-            .map(|n| format!("+{}", n.stats.code))
+            .map(|n| n.stats.lines.to_string())
             .unwrap_or_default()
     }
 
     fn duration_title(&self) -> String {
-        "Code".to_string()
+        "LOC".to_string()
     }
 }
 
@@ -398,7 +404,7 @@ fn render_ascii_tree(aggregate: &DirNode) -> String {
         0,
         TreeSpan {
             start_time: aggregate.stats.files as u64,
-            duration: aggregate.stats.code as u64,
+            duration: aggregate.stats.lines as u64,
             extra: Some(RenderNode {
                 name: ".".to_string(),
                 stats: aggregate.stats,
@@ -424,8 +430,8 @@ fn append_children(
     items.sort_by(|(name_a, node_a), (name_b, node_b)| {
         node_b
             .stats
-            .code
-            .cmp(&node_a.stats.code)
+            .lines
+            .cmp(&node_a.stats.lines)
             .then_with(|| name_a.cmp(name_b))
     });
 
@@ -434,7 +440,7 @@ fn append_children(
             parent_id,
             TreeSpan {
                 start_time: node.stats.files as u64,
-                duration: node.stats.code as u64,
+                duration: node.stats.lines as u64,
                 extra: Some(RenderNode {
                     name: name.clone(),
                     stats: node.stats,

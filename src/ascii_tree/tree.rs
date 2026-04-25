@@ -35,8 +35,14 @@ pub trait DescribeTreeSpan<T> {
     fn source(&self, _span: &TreeSpan<T>) -> String {
         String::new()
     }
+    fn source_title(&self) -> String {
+        "Source".to_string()
+    }
     fn start(&self, span: &TreeSpan<T>) -> String {
         span.start_time.to_string()
+    }
+    fn start_title(&self) -> String {
+        "Start".to_string()
     }
     fn duration(&self, span: &TreeSpan<T>) -> String {
         format!("+{}", span.duration)
@@ -263,10 +269,10 @@ impl<T> Tree<T> {
         }
 
         let columns = vec![
-            "Start".to_string(),
+            desc.start_title(),
             desc.duration_title(),
             "| Name".to_string(),
-            "Source".to_string(),
+            desc.source_title(),
         ];
         let column_alignments = vec![
             Alignment::Right, // start time
