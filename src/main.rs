@@ -7,6 +7,7 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 use ascii_tree::{AsciiOptions, DescribeTreeSpan, Tree, TreeSpan};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use pico_args::Arguments;
 use tokei::{Config, LanguageType};
 
@@ -53,7 +54,7 @@ impl DirNode {
 struct Cli {
     roots: Vec<PathBuf>,
     language_filter: Option<BTreeSet<LanguageType>>,
-    excluded_paths: Vec<PathBuf>,
+    exclude_matcher: GlobSet,
     min_parent_percentage_to_hide: u8,
 }
 
@@ -113,13 +114,13 @@ fn parse_cli() -> Result<Cli, String> {
 
     let mut raw_excluded_paths = Vec::new();
     while let Some(value) = pargs
-        .opt_value_from_str::<_, PathBuf>("-X")
+        .opt_value_from_str::<_, String>("-X")
         .map_err(|e| e.to_string())?
     {
         raw_excluded_paths.push(value);
     }
     while let Some(value) = pargs
-        .opt_value_from_str::<_, PathBuf>("--exclude")
+        .opt_value_from_str::<_, String>("--exclude")
         .map_err(|e| e.to_string())?
     {
         raw_excluded_paths.push(value);
@@ -142,12 +143,12 @@ fn parse_cli() -> Result<Cli, String> {
     };
 
     let language_filter = parse_language_filter(&raw_language_values)?;
-    let excluded_paths = parse_excluded_paths(raw_excluded_paths)?;
+    let exclude_matcher = build_exclude_matcher(&raw_excluded_paths)?;
 
     Ok(Cli {
         roots,
         language_filter,
-        excluded_paths,
+        exclude_matcher,
         min_parent_percentage_to_hide,
     })
 }
@@ -183,20 +184,37 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
     Ok(Some(filter))
 }
 
-fn parse_excluded_paths(raw_paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
-    raw_paths
-        .into_iter()
-        .map(|path| {
-            if path.is_absolute() {
-                return Err(format!(
-                    "-X/--exclude expects a path relative to the current directory, got {}",
-                    path.display()
-                ));
-            }
+fn build_exclude_matcher(raw_patterns: &[String]) -> Result<GlobSet, String> {
+    let mut builder = GlobSetBuilder::new();
 
-            Ok(normalize_relative_path(&path))
-        })
-        .collect()
+    for pattern in raw_patterns {
+        if pattern.is_empty() {
+            return Err("-X/--exclude was set but no glob was provided".to_string());
+        }
+
+        if Path::new(pattern).is_absolute() {
+            return Err(format!(
+                "-X/--exclude expects a glob relative to the current directory, got {pattern}"
+            ));
+        }
+
+        let pattern = normalize_relative_pattern(pattern);
+        add_exclude_glob(&mut builder, &pattern)?;
+        add_exclude_glob(&mut builder, &format!("{pattern}/**"))?;
+    }
+
+    builder
+        .build()
+        .map_err(|err| format!("Invalid -X/--exclude glob: {err}"))
+}
+
+fn add_exclude_glob(builder: &mut GlobSetBuilder, pattern: &str) -> Result<(), String> {
+    let glob = GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .map_err(|err| format!("Invalid -X/--exclude glob {pattern}: {err}"))?;
+    builder.add(glob);
+    Ok(())
 }
 
 fn parse_parent_hide_percentage(short: Option<u8>, hide_below: Option<u8>) -> Result<u8, String> {
@@ -234,7 +252,7 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
         };
 
         if root_metadata.is_file() {
-            if is_excluded_path(root_path, &cli.excluded_paths) {
+            if is_excluded_path(root_path, &cli.exclude_matcher) {
                 continue;
             }
 
@@ -255,7 +273,7 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
             &root_label,
             &config,
             &cli.language_filter,
-            &cli.excluded_paths,
+            &cli.exclude_matcher,
             &mut root,
         )?;
     }
@@ -321,7 +339,7 @@ fn walk_dir(
     root_label: &Option<String>,
     config: &Config,
     language_filter: &Option<BTreeSet<LanguageType>>,
-    excluded_paths: &[PathBuf],
+    exclude_matcher: &GlobSet,
     root: &mut DirNode,
 ) -> io::Result<()> {
     let entries = match fs::read_dir(dir) {
@@ -342,7 +360,7 @@ fn walk_dir(
         };
 
         let path = entry.path();
-        if is_excluded_path(&path, excluded_paths) {
+        if is_excluded_path(&path, exclude_matcher) {
             continue;
         }
 
@@ -368,7 +386,7 @@ fn walk_dir(
                 root_label,
                 config,
                 language_filter,
-                excluded_paths,
+                exclude_matcher,
                 root,
             )?;
         } else if file_type.is_file() {
@@ -387,15 +405,13 @@ fn is_dot_prefixed_dir(entry: &fs::DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn is_excluded_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
-    if excluded_paths.is_empty() {
+fn is_excluded_path(path: &Path, exclude_matcher: &GlobSet) -> bool {
+    if exclude_matcher.is_empty() {
         return false;
     }
 
     let relative_path = path_relative_to_current_dir(path);
-    excluded_paths
-        .iter()
-        .any(|excluded| relative_path == *excluded || relative_path.starts_with(excluded))
+    exclude_matcher.is_match(relative_path)
 }
 
 fn path_relative_to_current_dir(path: &Path) -> PathBuf {
@@ -406,6 +422,12 @@ fn path_relative_to_current_dir(path: &Path) -> PathBuf {
         .unwrap_or(path);
 
     normalize_relative_path(relative)
+}
+
+fn normalize_relative_pattern(pattern: &str) -> String {
+    normalize_relative_path(Path::new(pattern))
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn normalize_relative_path(path: &Path) -> PathBuf {
@@ -507,7 +529,7 @@ USAGE:
 
 OPTIONS:
     -L, --languages <LANGS>    Comma- or space-separated languages to include
-    -X, --exclude <PATH>       Skip a path relative to the current directory (repeatable)
+    -X, --exclude <GLOB>       Skip a relative glob such as target or **/node_modules (repeatable)
     -p, --hide-below <PCT>     Hide child nodes smaller than this % of parent (default: 16)
     -h, --help                 Print help
 
@@ -703,23 +725,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_excluded_paths_normalizes_relative_paths() {
-        let parsed = parse_excluded_paths(vec![
-            PathBuf::from("./target"),
-            PathBuf::from("src/../generated"),
-        ])
-        .unwrap();
+    fn build_exclude_matcher_normalizes_relative_paths() {
+        let matcher =
+            build_exclude_matcher(&["./target".to_string(), "src/../generated".to_string()])
+                .unwrap();
 
-        assert_eq!(
-            parsed,
-            vec![PathBuf::from("target"), PathBuf::from("generated")]
-        );
+        assert!(matcher.is_match("target"));
+        assert!(matcher.is_match("target/debug/build.rs"));
+        assert!(matcher.is_match("generated"));
+        assert!(matcher.is_match("generated/output.rs"));
     }
 
     #[test]
-    fn parse_excluded_paths_rejects_absolute_paths() {
-        let err = parse_excluded_paths(vec![PathBuf::from("/tmp/build")]).unwrap_err();
+    fn build_exclude_matcher_rejects_absolute_paths() {
+        let err = build_exclude_matcher(&["/tmp/build".to_string()]).unwrap_err();
         assert!(err.contains("relative to the current directory"));
+    }
+
+    #[test]
+    fn build_exclude_matcher_rejects_invalid_globs() {
+        let err = build_exclude_matcher(&["src/[".to_string()]).unwrap_err();
+        assert!(err.contains("Invalid -X/--exclude glob"));
     }
 
     #[test]
@@ -787,17 +813,36 @@ mod tests {
 
     #[test]
     fn excluded_path_matches_path_and_descendants() {
-        let excluded = vec![PathBuf::from("target")];
+        let matcher = build_exclude_matcher(&["target".to_string()]).unwrap();
 
-        assert!(is_excluded_path(Path::new("target"), &excluded));
+        assert!(is_excluded_path(Path::new("target"), &matcher));
         assert!(is_excluded_path(
             Path::new("target/debug/build.rs"),
-            &excluded
+            &matcher
         ));
         assert!(!is_excluded_path(
             Path::new("src/target/debug/build.rs"),
-            &excluded
+            &matcher
         ));
-        assert!(!is_excluded_path(Path::new("targeted/file.rs"), &excluded));
+        assert!(!is_excluded_path(Path::new("targeted/file.rs"), &matcher));
+    }
+
+    #[test]
+    fn excluded_path_supports_recursive_globs() {
+        let matcher = build_exclude_matcher(&["**/node_modules".to_string()]).unwrap();
+
+        assert!(is_excluded_path(Path::new("node_modules"), &matcher));
+        assert!(is_excluded_path(
+            Path::new("frontend/node_modules"),
+            &matcher
+        ));
+        assert!(is_excluded_path(
+            Path::new("frontend/node_modules/package/index.js"),
+            &matcher
+        ));
+        assert!(!is_excluded_path(
+            Path::new("frontend/not_node_modules/package/index.js"),
+            &matcher
+        ));
     }
 }
