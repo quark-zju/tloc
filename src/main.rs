@@ -163,7 +163,8 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
 
     for token in raw_values
         .iter()
-        .flat_map(|v| v.split(|ch: char| ch == ',' || ch.is_whitespace()))
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
         .filter(|s| !s.is_empty())
     {
         if let Some(lang) = LanguageType::from_name(token).or_else(|| token.parse().ok()) {
@@ -531,7 +532,7 @@ USAGE:
     tloc [OPTIONS] [PATH ...]
 
 OPTIONS:
-    -L, --languages <LANGS>    Comma- or space-separated languages to include
+    -L, --languages <LANGS>    Comma-separated languages to include (repeatable)
     -X, --exclude <GLOB>       Skip a relative glob such as target or **/node_modules (repeatable)
     -p, --hide-below <PCT>     Hide nodes below this % of total code (default: 10)
     -h, --help                 Print help
@@ -713,15 +714,14 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn parse_languages_supports_commas_and_spaces() {
+    fn parse_languages_supports_commas_and_repeatable_flags() {
         let parsed =
-            parse_language_filter(&["Rust,Python".to_string(), "Markdown JavaScript".to_string()])
+            parse_language_filter(&["Rust,Plain Text".to_string(), "JavaScript".to_string()])
                 .unwrap()
                 .unwrap();
 
         assert!(parsed.contains(&LanguageType::Rust));
-        assert!(parsed.contains(&LanguageType::Python));
-        assert!(parsed.contains(&LanguageType::Markdown));
+        assert!(parsed.contains(&LanguageType::Text));
         assert!(parsed.contains(&LanguageType::JavaScript));
     }
 
@@ -729,6 +729,12 @@ mod tests {
     fn parse_languages_rejects_unknowns() {
         let err = parse_language_filter(&["Rust,NotALanguage".to_string()]).unwrap_err();
         assert!(err.contains("NotALanguage"));
+    }
+
+    #[test]
+    fn parse_languages_requires_commas_between_multiple_values() {
+        let err = parse_language_filter(&["Rust Python".to_string()]).unwrap_err();
+        assert!(err.contains("Rust Python"));
     }
 
     #[test]
