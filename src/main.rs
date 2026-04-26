@@ -167,10 +167,11 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        if let Some(lang) = LanguageType::from_name(token).or_else(|| token.parse().ok()) {
-            filter.insert(lang);
-        } else {
+        let matched = resolve_language_token(token);
+        if matched.is_empty() {
             unknown.push(token.to_string());
+        } else {
+            filter.extend(matched);
         }
     }
 
@@ -183,6 +184,45 @@ fn parse_language_filter(raw_values: &[String]) -> Result<Option<BTreeSet<Langua
     }
 
     Ok(Some(filter))
+}
+
+fn resolve_language_token(token: &str) -> BTreeSet<LanguageType> {
+    if let Some(lang) = LanguageType::from_name(token).or_else(|| token.parse().ok()) {
+        return BTreeSet::from([lang]);
+    }
+
+    let mut matched = BTreeSet::new();
+    let token_lower = token.to_ascii_lowercase();
+    let extension = token_lower.strip_prefix('.').unwrap_or(&token_lower);
+
+    if !extension.is_empty() {
+        if let Some(lang) = LanguageType::from_file_extension(extension) {
+            matched.insert(lang);
+        }
+    }
+
+    for (language, _) in LanguageType::list() {
+        let name = language.name().to_ascii_lowercase();
+        let words: Vec<&str> = name
+            .split(|ch: char| !ch.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let word_match = words
+            .iter()
+            .copied()
+            .any(|word| !word.is_empty() && word == token_lower);
+        let suffix_match = name.ends_with(&token_lower)
+            || words
+                .iter()
+                .copied()
+                .any(|word| !word.is_empty() && word.ends_with(&token_lower));
+
+        if word_match || suffix_match {
+            matched.insert(*language);
+        }
+    }
+
+    matched
 }
 
 fn build_exclude_matcher(raw_patterns: &[String]) -> Result<GlobSet, String> {
@@ -532,7 +572,7 @@ USAGE:
     tloc [OPTIONS] [PATH ...]
 
 OPTIONS:
-    -L, --languages <LANGS>    Comma-separated languages to include (repeatable)
+    -L, --languages <LANGS>    Comma-separated languages to include (repeatable, supports .rs/plain/text)
     -X, --exclude <GLOB>       Skip a relative glob such as target or **/node_modules (repeatable)
     -p, --hide-below <PCT>     Hide nodes below this % of total code (default: 10)
     -h, --help                 Print help
@@ -723,6 +763,31 @@ mod tests {
         assert!(parsed.contains(&LanguageType::Rust));
         assert!(parsed.contains(&LanguageType::Text));
         assert!(parsed.contains(&LanguageType::JavaScript));
+    }
+
+    #[test]
+    fn parse_languages_falls_back_to_name_words() {
+        let parsed = parse_language_filter(&["plain,text".to_string()])
+            .unwrap()
+            .unwrap();
+
+        assert!(parsed.contains(&LanguageType::Text));
+    }
+
+    #[test]
+    fn parse_languages_falls_back_to_name_suffixes() {
+        let parsed = parse_language_filter(&["script".to_string()])
+            .unwrap()
+            .unwrap();
+        assert!(parsed.contains(&LanguageType::JavaScript));
+    }
+
+    #[test]
+    fn parse_languages_falls_back_to_dot_extensions() {
+        let parsed = parse_language_filter(&[".rs".to_string()])
+            .unwrap()
+            .unwrap();
+        assert!(parsed.contains(&LanguageType::Rust));
     }
 
     #[test]
