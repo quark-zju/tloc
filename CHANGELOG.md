@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3
+
+- File discovery now follows `.gitignore` rules.
+
 ## v0.1.2
 
 - `-L` and `--languages` now support language extension input (for example, `.rs`).

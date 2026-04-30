@@ -1,6 +1,6 @@
 [package]
 name = "tloc"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.85"
 description = "Lines of code counter with tree-style output"
