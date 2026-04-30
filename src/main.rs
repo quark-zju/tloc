@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ascii_tree::{AsciiOptions, DescribeTreeSpan, Tree, TreeSpan};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use ignore::WalkBuilder;
 use pico_args::Arguments;
 use tokei::{Config, LanguageType};
 
@@ -313,13 +314,12 @@ fn collect_directory_stats(cli: &Cli) -> io::Result<DirNode> {
 
         walk_dir(
             root_path,
-            root_path,
             &root_label,
             &config,
             &cli.language_filter,
             &cli.exclude_matcher,
             &mut root,
-        )?;
+        );
     }
 
     Ok(root)
@@ -379,74 +379,42 @@ fn path_display_label(path: &Path) -> String {
 
 fn walk_dir(
     base: &Path,
-    dir: &Path,
     root_label: &Option<String>,
     config: &Config,
     language_filter: &Option<BTreeSet<LanguageType>>,
     exclude_matcher: &GlobSet,
     root: &mut DirNode,
-) -> io::Result<()> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) => {
-            eprintln!("Skipping {}: {err}", dir.display());
-            return Ok(());
-        }
-    };
+) {
+    let mut walker = WalkBuilder::new(base);
+    walker
+        .hidden(false)
+        .follow_links(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false);
 
-    for entry in entries {
+    for entry in walker.build() {
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
-                eprintln!("Skipping directory entry in {}: {err}", dir.display());
+                eprintln!("Skipping {}", err);
                 continue;
             }
         };
 
         let path = entry.path();
-        if is_excluded_path(&path, exclude_matcher) {
+        if entry.depth() == 0 || is_excluded_path(path, exclude_matcher) {
             continue;
         }
 
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(err) => {
-                eprintln!("Skipping {}: {err}", path.display());
-                continue;
-            }
-        };
-
-        if file_type.is_symlink() {
-            continue;
-        }
-
-        if file_type.is_dir() {
-            if is_dot_prefixed_dir(&entry) {
-                continue;
-            }
-            walk_dir(
-                base,
-                &path,
-                root_label,
-                config,
-                language_filter,
-                exclude_matcher,
-                root,
-            )?;
-        } else if file_type.is_file() {
-            process_file(&path, base, root_label, config, language_filter, root);
+        if entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file())
+        {
+            process_file(path, base, root_label, config, language_filter, root);
         }
     }
-
-    Ok(())
-}
-
-fn is_dot_prefixed_dir(entry: &fs::DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|name| name.starts_with('.'))
-        .unwrap_or(false)
 }
 
 fn is_excluded_path(path: &Path, exclude_matcher: &GlobSet) -> bool {
@@ -911,31 +879,29 @@ mod tests {
     }
 
     #[test]
-    fn dot_prefixed_directory_detection() {
+    fn walk_dir_respects_gitignore() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let base = std::env::temp_dir().join(format!("tloc-dotdir-test-{unique}"));
-        fs::create_dir_all(base.join(".git")).unwrap();
+        let base = std::env::temp_dir().join(format!("tloc-gitignore-test-{unique}"));
         fs::create_dir_all(base.join("src")).unwrap();
+        fs::write(base.join(".gitignore"), "ignored.rs\n").unwrap();
+        fs::write(base.join("ignored.rs"), "fn ignored() {}\n").unwrap();
+        fs::write(base.join("src").join("kept.rs"), "fn kept() {}\n").unwrap();
 
-        let mut dot = None;
-        let mut normal = None;
-        for entry in fs::read_dir(&base).unwrap() {
-            let entry = entry.unwrap();
-            let name = entry.file_name();
-            if name == ".git" {
-                dot = Some(entry);
-            } else if name == "src" {
-                normal = Some(entry);
-            }
-        }
+        let mut root = DirNode::default();
+        walk_dir(
+            &base,
+            &None,
+            &Config::default(),
+            &None,
+            &build_exclude_matcher(&[]).unwrap(),
+            &mut root,
+        );
 
-        let dot = dot.expect("missing .git dir entry");
-        let normal = normal.expect("missing src dir entry");
-        assert!(is_dot_prefixed_dir(&dot));
-        assert!(!is_dot_prefixed_dir(&normal));
+        assert!(!root.children.contains_key("ignored.rs"));
+        assert!(root.children.contains_key("src"));
 
         fs::remove_dir_all(base).unwrap();
     }
